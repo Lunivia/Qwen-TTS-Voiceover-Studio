@@ -1,0 +1,47 @@
+.venv/
+venv/
+env/
+
+# Local model snapshots (4GB+ each)
+models/
+model/
+checkpoints/
+weights/
+*.safetensors
+*.bin
+*.pt
+*.pth
+*.ckpt
+
+# Runtime state and user data
+data/
+outputs/
+output/
+generated/
+generated_audio/
+logs/
+cache/
+.cache/
+tmp/
+temp/
+
+# Python / tooling
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+node_modules/
+
+# Local secrets and machine settings
+.env
+.env.local
+.env.*.local
+*.wav
+*.mp3
+
+# OS/editor files
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
