@@ -3,6 +3,7 @@ from __future__ import annotations
 import html
 import json
 import os
+from contextlib import ExitStack
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -54,9 +55,6 @@ STUDIO_CSS = """
 .global-sidebar .sidebar-nav a:hover, .global-sidebar .sidebar-nav a.active {background: var(--background-fill-primary); border-left-color: var(--primary-500);}
 .sidebar-summary {line-height: 1.65; color: var(--body-text-color-subdued); font-size: 13px;}
 .main-workbench {flex: 1 1 auto !important; min-width: 0 !important;}
-.main-workbench .tab-wrapper > .tab-container[role="tablist"] {display: none !important;}
-.main-workbench .overflow-menu {display: none !important;}
-.workflow-map, .workflow-stage-nav {display: none !important;}
 .studio-hero {padding: 4px 2px 10px 2px;}
 .studio-muted {color: var(--body-text-color-subdued);}
 .studio-native-audio {width: 100%; min-height: 42px;}
@@ -121,42 +119,7 @@ STUDIO_CSS = """
     margin-bottom: 10px;
 }
 .batch-result-card audio {max-height: 90px;}
-.block.workflow-map {
-    margin: 10px 0 18px 0;
-    padding: 14px 18px;
-    border: 1px solid var(--border-color-primary);
-    border-radius: 12px;
-    background: var(--background-fill-secondary);
-}
-.block.workflow-map p {margin: 0 !important; font-weight: 600;}
-.workflow-stage-nav {
-    position: sticky;
-    top: 8px;
-    z-index: 30;
-    display: flex;
-    flex-wrap: wrap;
-    gap: 8px;
-    margin: 8px 0 18px 0;
-    padding: 10px 12px;
-    border: 1px solid var(--border-color-primary);
-    border-radius: 12px;
-    background: color-mix(in srgb, var(--background-fill-primary) 92%, transparent);
-    box-shadow: var(--shadow-drop-lg);
-    backdrop-filter: blur(10px);
-}
-.workflow-stage-nav a {
-    color: var(--body-text-color);
-    text-decoration: none;
-    font-weight: 600;
-    padding: 7px 11px;
-    border-radius: 9px;
-    background: var(--background-fill-secondary);
-    border: 1px solid var(--border-color-secondary);
-}
-.workflow-stage-nav a:hover {
-    color: var(--primary-600);
-    border-color: var(--primary-400);
-}
+.sidebar-nav-button {width: 100%; text-align: left; margin: 2px 0; min-height: 32px; padding: 5px 9px !important;}
 .block:has(> button.label-wrap) {
     border: 1px solid var(--border-color-primary) !important;
     border-left: 5px solid var(--primary-400) !important;
@@ -417,6 +380,17 @@ def project_summary_text(project_id: str | None = None) -> str:
         f"{row['task_count']} 条任务<br>"
         f"{row['completed_count']} 条已完成"
     )
+
+
+VIEW_NAMES = ("voice", "dubbing", "results", "assets", "upload", "projects", "design", "clone", "audio", "system")
+
+
+def switch_view(target: str):
+    """Pure UI routing: show exactly one page container, without touching data."""
+    if target not in VIEW_NAMES:
+        target = "voice"
+    labels = {"voice": "声线", "dubbing": "配音", "results": "成品", "assets": "声线资产", "upload": "上传声线", "projects": "项目管理", "design": "VoiceDesign", "clone": "VoiceClone", "audio": "音频转换", "system": "系统状态"}
+    return [*[gr.update(visible=name == target) for name in VIEW_NAMES], f"当前页面：{labels[target]}"]
 
 
 REQUEST_STATUS = {
@@ -1296,8 +1270,8 @@ def build_app() -> gr.Blocks:
     initial_excerpt_length = default_batch_excerpt_length(default_project)
 
     with gr.Blocks(title="Qwen3 TTS 声线工作台") as app:
-        workbench_shell = gr.Row(elem_classes=["workbench-shell"])
-        workbench_shell.__enter__()
+        layout_stack = ExitStack()
+        workbench_shell = layout_stack.enter_context(gr.Row(elem_classes=["workbench-shell"]))
         with gr.Column(
             scale=0,
             min_width=240,
@@ -1307,42 +1281,26 @@ def build_app() -> gr.Blocks:
             gr.Markdown("Qwen TTS Studio", elem_classes=["sidebar-title"])
             project_select = gr.Dropdown(label="当前项目", choices=projects, value=default_project)
             sidebar_project_summary = gr.HTML(project_summary_text(default_project), elem_classes=["sidebar-summary"])
-            sidebar_new_project = gr.Textbox(label="新建项目", placeholder="项目名称", show_label=False)
-            sidebar_create_project_btn = gr.Button("＋ 新建项目", variant="secondary")
             gr.Markdown("工作台", elem_classes=["sidebar-section"])
-            gr.HTML(
-                """
-                <div class="sidebar-nav">
-                  <a href="#" onclick="return window.qwenSelectTab('项目工作流')">声线 / 配音 / 成品</a>
-                  <a href="#" onclick="return window.qwenSelectTab('声线资产库')">声线资产</a>
-                </div>
-                <div class="sidebar-section">工具</div>
-                <div class="sidebar-nav">
-                  <a href="#" onclick="return window.qwenSelectTab('独立 VoiceDesign')">VoiceDesign</a>
-                  <a href="#" onclick="return window.qwenSelectTab('独立 VoiceClone')">VoiceClone</a>
-                  <a href="#" onclick="return window.qwenSelectTab('音频转换')">音频转换</a>
-                </div>
-                <div class="sidebar-section">系统</div>
-                <div class="sidebar-nav">
-                  <a href="#" onclick="return window.qwenSelectTab('系统状态')">系统状态</a>
-                </div>
-                <script>
-                  window.qwenSelectTab = window.qwenSelectTab || function(label) {
-                    const tabs = Array.from(document.querySelectorAll('[role="tab"]'));
-                    const target = tabs.find(tab => (tab.textContent || '').trim() === label);
-                    if (target) target.click();
-                    return false;
-                  };
-                </script>
-                """
-            )
+            voice_nav = gr.Button("声线", elem_classes=["sidebar-nav-button"])
+            dubbing_nav = gr.Button("配音", elem_classes=["sidebar-nav-button"])
+            results_nav = gr.Button("成品", elem_classes=["sidebar-nav-button"])
+            gr.Markdown("资产", elem_classes=["sidebar-section"])
+            assets_nav = gr.Button("声线资产", elem_classes=["sidebar-nav-button"])
+            upload_nav = gr.Button("上传声线", elem_classes=["sidebar-nav-button"])
+            gr.Markdown("项目", elem_classes=["sidebar-section"])
+            projects_nav = gr.Button("项目管理", elem_classes=["sidebar-nav-button"])
+            gr.Markdown("工具", elem_classes=["sidebar-section"])
+            design_nav = gr.Button("VoiceDesign", elem_classes=["sidebar-nav-button"])
+            clone_nav = gr.Button("VoiceClone", elem_classes=["sidebar-nav-button"])
+            audio_nav = gr.Button("音频转换", elem_classes=["sidebar-nav-button"])
+            gr.Markdown("系统", elem_classes=["sidebar-section"])
+            system_nav = gr.Button("系统状态", elem_classes=["sidebar-nav-button"])
+            sidebar_view_status = gr.Markdown("当前页面：声线", elem_classes=["sidebar-view-status"])
 
-        main_workbench = gr.Column(scale=1, min_width=0, elem_classes=["main-workbench"])
-        main_workbench.__enter__()
-        with gr.Tabs():
-            with gr.Tab("项目工作流"):
-                with gr.Row():
-                    refresh_project_btn = gr.Button("刷新项目列表", scale=1)
+        main_workbench = layout_stack.enter_context(gr.Column(scale=1, min_width=0, elem_classes=["main-workbench"]))
+        with gr.Column():
+            with gr.Column(visible=True, elem_id="page-voice") as voice_page:
                 project_status = gr.Markdown()
                 with gr.Accordion("📁 项目管理与项目列表", open=False):
                     with gr.Row():
@@ -1352,6 +1310,7 @@ def build_app() -> gr.Blocks:
                         "### 项目列表（仅查看与管理）\n"
                         "项目切换请使用左侧‘当前项目’；每个项目的资产和任务彼此隔离。"
                     )
+                    refresh_project_btn = gr.Button("刷新项目列表")
                     project_table = gr.Dataframe(
                         headers=[
                             "当前", "项目名称", "声线槽位", "可用固化声线", "单句成品",
@@ -1370,23 +1329,6 @@ def build_app() -> gr.Blocks:
                             scale=4,
                         )
                         delete_project_btn = gr.Button("永久删除当前项目", variant="stop", scale=1)
-
-                gr.Markdown(
-                    "**当前工作流：** 0 工作表 → 1 创建、挑选与固化 → "
-                    "2 批量生成 → 3 试听与返修 → 4 导出成品",
-                    elem_classes=["workflow-map"],
-                )
-                gr.HTML(
-                    """
-                    <nav class="workflow-stage-nav" aria-label="工作流阶段导航">
-                      <a href="#workflow-step-0">0 工作表</a>
-                      <a href="#workflow-step-1">1 创建与固化</a>
-                      <a href="#workflow-step-2">2 批量生成</a>
-                      <a href="#workflow-step-3">3 试听返修</a>
-                      <a href="#workflow-step-4">4 导出成品</a>
-                    </nav>
-                    """
-                )
 
                 gr.Markdown(
                     "## 0 · 建立本项目声线工作表\n"
@@ -1764,7 +1706,13 @@ def build_app() -> gr.Blocks:
                     with gr.Column(scale=2):
                         batch_archive_file = gr.File(label="全部成品下载 ZIP", interactive=False)
 
-            with gr.Tab("声线资产库"):
+            with gr.Column(visible=False, elem_id="page-dubbing") as dubbing_page:
+                gr.Markdown("## 配音\n批量配音控件与任务进度保留在“声线”工作流中。")
+            with gr.Column(visible=False, elem_id="page-results") as results_page:
+                gr.Markdown("## 成品\n试听、返修与导出功能保留在“声线”工作流中。")
+            with gr.Column(visible=False, elem_id="page-projects") as projects_page:
+                gr.Markdown("## 项目管理\n项目切换请使用左侧“当前项目”；项目列表与删除入口位于声线工作流的项目管理区。")
+            with gr.Column(visible=False, elem_id="page-assets") as assets_page:
                 with gr.Row():
                     library_refresh = gr.Button("刷新声线库")
                     library_project = gr.Dropdown(
@@ -1787,7 +1735,7 @@ def build_app() -> gr.Blocks:
                         library_audio = gr.Audio(label="输出", type="filepath", elem_id="library-audio")
                         library_status = gr.Markdown()
 
-            with gr.Tab("上传并固化已有声线资产"):
+            with gr.Column(visible=False, elem_id="page-upload") as upload_page:
                 gr.Markdown(
                     "上传已有 WAV 或 MP3，生成一段克隆试听并固化为可复用资产。"
                     "成功后会自动进入声线资产库和项目工作流的“绑定声线”列表。"
@@ -1814,7 +1762,7 @@ def build_app() -> gr.Blocks:
                         upload_preview = gr.Audio(label="克隆试听", type="filepath", elem_id="upload-preview-audio")
                         upload_status = gr.Markdown()
 
-            with gr.Tab("独立 VoiceDesign"):
+            with gr.Column(visible=False, elem_id="page-design") as design_page:
                 with gr.Row():
                     with gr.Column(scale=2):
                         design_text = gr.Textbox(label="待合成文本", lines=4)
@@ -1825,7 +1773,7 @@ def build_app() -> gr.Blocks:
                         design_audio = gr.Audio(label="输出", type="filepath", elem_id="design-audio")
                         design_status = gr.Markdown()
 
-            with gr.Tab("独立 VoiceClone"):
+            with gr.Column(visible=False, elem_id="page-clone") as clone_page:
                 with gr.Row():
                     with gr.Column(scale=2):
                         clone_ref_audio = gr.Audio(
@@ -1842,7 +1790,7 @@ def build_app() -> gr.Blocks:
                         clone_audio = gr.Audio(label="输出", type="filepath", elem_id="clone-output-audio")
                         clone_status = gr.Markdown()
 
-            with gr.Tab("音频转换"):
+            with gr.Column(visible=False, elem_id="page-audio") as audio_page:
                 with gr.Row():
                     converter_files = gr.File(label="音频文件", file_count="multiple", type="filepath")
                     with gr.Column():
@@ -1851,7 +1799,7 @@ def build_app() -> gr.Blocks:
                         converter_status = gr.Markdown()
                 converter_outputs = gr.File(label="转换结果", file_count="multiple")
 
-            with gr.Tab("系统状态"):
+            with gr.Column(visible=False, elem_id="page-system") as system_page:
                 status_box = gr.Textbox(label="运行状态", value=system_status(), lines=5, interactive=False)
                 with gr.Row():
                     status_refresh = gr.Button("刷新状态")
@@ -1862,12 +1810,14 @@ def build_app() -> gr.Blocks:
             inputs=[new_project],
             outputs=[project_select, library_project, upload_project, project_table, sidebar_project_summary, project_status],
         )
-        sidebar_create_project_btn.click(
-            create_project,
-            inputs=[sidebar_new_project],
-            outputs=[project_select, library_project, upload_project, project_table, sidebar_project_summary, project_status],
-            queue=False,
-        )
+        page_outputs = [voice_page, dubbing_page, results_page, assets_page, upload_page, projects_page, design_page, clone_page, audio_page, system_page, sidebar_view_status]
+        for nav_button, target in (
+            (voice_nav, "voice"), (dubbing_nav, "dubbing"), (results_nav, "results"),
+            (assets_nav, "assets"), (upload_nav, "upload"), (projects_nav, "projects"),
+            (design_nav, "design"), (clone_nav, "clone"), (audio_nav, "audio"),
+            (system_nav, "system"),
+        ):
+            nav_button.click(lambda target=target: switch_view(target), outputs=page_outputs, queue=False)
         delete_project_btn.click(
             delete_project_action,
             inputs=[project_select, delete_project_confirmation],
@@ -2306,7 +2256,6 @@ def build_app() -> gr.Blocks:
             show_progress="hidden",
         )
 
-        main_workbench.__exit__(None, None, None)
-        workbench_shell.__exit__(None, None, None)
+        layout_stack.close()
 
     return app
