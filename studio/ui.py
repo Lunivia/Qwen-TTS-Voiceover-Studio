@@ -308,6 +308,28 @@ def refresh_projects(current_project=None):
     )
 
 
+def refresh_projects_on_load():
+    """Reload project choices from the database whenever a browser session opens.
+
+    Gradio can reuse a server-side Blocks configuration across browser refreshes,
+    so choices captured during the original process startup may be stale after a
+    project is created. Resolve the selection from the persisted setting and
+    rebuild all project dropdowns on every page load.
+    """
+    choices = service.project_choices()
+    saved_project = database.get_setting("last_project_id")
+    valid_ids = {item[1] for item in choices}
+    selected = saved_project if saved_project in valid_ids else (choices[0][1] if choices else None)
+    if selected and selected != saved_project:
+        database.set_setting("last_project_id", selected)
+    return (
+        project_dropdown(selected, "当前项目"),
+        project_dropdown(selected, "当前项目（资产筛选）"),
+        project_dropdown(selected, "当前项目（上传归属）"),
+        project_rows(selected),
+    )
+
+
 def delete_project_action(project_id, confirmation):
     try:
         project = database.fetch_one("SELECT name FROM projects WHERE id=?", (project_id,)) if project_id else None
@@ -2167,6 +2189,12 @@ def build_app() -> gr.Blocks:
                 queue=False,
             )
 
+        app.load(
+            refresh_projects_on_load,
+            outputs=[project_select, library_project, upload_project, project_table],
+            queue=False,
+            show_progress="hidden",
+        )
         app.load(
             switch_project,
             inputs=[project_select],
