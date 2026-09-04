@@ -55,6 +55,7 @@ STUDIO_CSS = """
 .sidebar-summary {line-height: 1.65; color: var(--body-text-color-subdued); font-size: 13px;}
 .main-workbench {flex: 1 1 auto !important; min-width: 0 !important;}
 .main-workbench .tab-wrapper > .tab-container[role="tablist"] {display: none !important;}
+.main-workbench .overflow-menu {display: none !important;}
 .workflow-map, .workflow-stage-nav {display: none !important;}
 .studio-hero {padding: 4px 2px 10px 2px;}
 .studio-muted {color: var(--body-text-color-subdued);}
