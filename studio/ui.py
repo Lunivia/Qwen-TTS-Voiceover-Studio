@@ -376,10 +376,12 @@ def project_rows(current_project: str | None = None) -> list[list[Any]]:
 
 def select_project_from_table(evt: gr.SelectData):
     try:
-        row_index = evt.index[0] if isinstance(evt.index, (tuple, list)) else evt.index
-        projects = service.project_summaries()
-        project = projects[int(row_index)]
-        return project_dropdown(project["id"], "当前项目"), f"已切换到项目“{project['name']}”。"
+        row = getattr(evt, "row_value", None) or getattr(evt, "value", None)
+        project_id = row[8] if isinstance(row, (tuple, list)) and len(row) > 8 else None
+        if not project_id:
+            raise ValueError("无法从项目表行解析项目 ID，请使用项目下拉框")
+        context = service.switch_project_context(str(project_id))
+        return project_dropdown(context.current_project_id, "当前项目"), f"已切换到项目「{context.name}」"
     except Exception as exc:
         return project_dropdown(label="当前项目"), f"{type(exc).__name__}: {exc}"
 
@@ -1144,7 +1146,7 @@ def refresh_batch(project_id):
 
 
 def switch_project(project_id):
-    service.activate_project(project_id)
+    service.switch_project_context(project_id)
     return (
         batch_rows(project_id),
         batch_voice_selector(project_id),

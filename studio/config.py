@@ -23,7 +23,26 @@ def _load_local_env() -> None:
 
 
 _load_local_env()
-DATA_DIR = ROOT / "data"
+
+
+def _resolve_data_dir() -> Path:
+    """Resolve storage without hiding an existing repository-local database."""
+    configured = os.getenv("QWEN_TTS_DATA_DIR", "").strip()
+    if configured:
+        path = Path(os.path.expandvars(configured)).expanduser()
+        return path if path.is_absolute() else (ROOT / path)
+
+    legacy = ROOT / "data"
+    if (legacy / "app.db").exists():
+        return legacy
+
+    local_app_data = os.getenv("LOCALAPPDATA", "").strip()
+    if local_app_data:
+        return Path(local_app_data) / "QwenTTSVoiceoverStudio"
+    return legacy
+
+
+DATA_DIR = _resolve_data_dir()
 VOICE_DIR = DATA_DIR / "voices"
 PROJECT_DIR = DATA_DIR / "projects"
 TEMP_DIR = DATA_DIR / "temp"

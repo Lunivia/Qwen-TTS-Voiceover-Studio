@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import sqlite3
+import shutil
 import threading
 import uuid
 from contextlib import contextmanager
@@ -8,7 +9,10 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Iterator
 
-from .config import DB_PATH
+from .config import DB_PATH, PROJECT_DIR, VOICE_DIR
+
+
+SCHEMA_VERSION = 1
 
 
 def utc_now() -> str:
@@ -38,6 +42,10 @@ class Database:
             connection.close()
 
     def initialize(self) -> None:
+        existing_database = self.path.exists() and self.path.stat().st_size > 0
+        stored_version = self._read_schema_version() if existing_database else 0
+        if existing_database and stored_version < SCHEMA_VERSION:
+            self.backup_snapshot("pre-migration")
         schema = """
         CREATE TABLE IF NOT EXISTS projects (
             id TEXT PRIMARY KEY,
@@ -160,7 +168,11 @@ class Database:
             connection.execute(
                 "UPDATE batch_items SET status='pending', error='应用上次运行时中断，已自动恢复到等待状态' WHERE status='running'"
             )
-        self.backup()
+            connection.execute(
+                "INSERT INTO app_settings(key,value,updated_at) VALUES('schema_version',?,?) "
+                "ON CONFLICT(key) DO UPDATE SET value=excluded.value,updated_at=excluded.updated_at",
+                (str(SCHEMA_VERSION), utc_now()),
+            )
 
     def execute(self, sql: str, parameters: tuple[Any, ...] = ()) -> None:
         with self._lock, self.connection() as connection:
@@ -210,11 +222,31 @@ class Database:
             (self.new_id(), project_id, entity_type, entity_id, action, detail, utc_now()),
         )
 
-    def backup(self) -> Path:
+    def _read_schema_version(self) -> int:
+        try:
+            connection = sqlite3.connect(self.path, timeout=5)
+            try:
+                row = connection.execute(
+                    "SELECT value FROM app_settings WHERE key='schema_version'"
+                ).fetchone()
+            finally:
+                connection.close()
+            return int(row[0]) if row else 0
+        except (OSError, sqlite3.Error, TypeError, ValueError):
+            return 0
+
+    def backup_snapshot(self, label: str = "snapshot") -> Path:
+        """Create a unique, non-overwriting DB and asset snapshot."""
         backup_dir = self.path.parent / "backups"
         backup_dir.mkdir(parents=True, exist_ok=True)
-        stamp = datetime.now().strftime("%Y%m%d")
-        destination = backup_dir / f"app-{stamp}.db"
+        stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+        root = backup_dir / f"{label}-{stamp}"
+        suffix = 1
+        while root.exists():
+            root = backup_dir / f"{label}-{stamp}-{suffix}"
+            suffix += 1
+        root.mkdir(parents=True)
+        destination = root / "app.db"
         with self._lock:
             source_connection = sqlite3.connect(self.path)
             backup_connection = sqlite3.connect(destination)
@@ -223,7 +255,18 @@ class Database:
             finally:
                 backup_connection.close()
                 source_connection.close()
-        backups = sorted(backup_dir.glob("app-*.db"), key=lambda item: item.name, reverse=True)
-        for old_backup in backups[14:]:
-            old_backup.unlink(missing_ok=True)
+        for source, name in ((PROJECT_DIR, "projects"), (VOICE_DIR, "voices")):
+            if source.exists():
+                shutil.copytree(source, root / name)
+        snapshots = sorted(
+            (item for item in backup_dir.iterdir() if item.is_dir() and (item / "app.db").exists()),
+            key=lambda item: item.name,
+            reverse=True,
+        )
+        for old_snapshot in snapshots[30:]:
+            shutil.rmtree(old_snapshot, ignore_errors=True)
         return destination
+
+    def backup(self) -> Path:
+        """Backward-compatible alias for manual backups."""
+        return self.backup_snapshot("app")

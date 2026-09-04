@@ -15,6 +15,7 @@ from .audio import copy_original, normalize_to_wav, safe_filename, wav_to_mp3, w
 from .config import DATA_DIR, PROJECT_DIR, TEMP_DIR, VOICE_DIR
 from .database import Database, utc_now
 from .model_manager import ModelManager
+from .project_context import ProjectContext
 
 
 LOG_DIR = DATA_DIR / "logs"
@@ -94,8 +95,40 @@ class StudioService:
         )
 
     def activate_project(self, project_id: str) -> None:
-        if self.db.fetch_one("SELECT id FROM projects WHERE id=?", (project_id,)):
-            self.db.set_setting("last_project_id", project_id)
+        self.switch_project_context(project_id)
+
+    def switch_project_context(self, project_id: str | None) -> ProjectContext:
+        """Validate and persist the sole project context used by the UI."""
+        if not project_id:
+            raise ValueError("璇峰厛閫夋嫨椤圭洰")
+        project = self.db.fetch_one(
+            "SELECT id,name,status FROM projects WHERE id=?", (project_id,)
+        )
+        if not project:
+            raise ValueError("椤圭洰涓嶅瓨鍦ㄦ垨宸茶鍒犻櫎")
+        self.db.set_setting("last_project_id", project["id"])
+        return ProjectContext(project["id"], project["name"], project["status"])
+
+    def validate_data_integrity(self, project_id: str | None = None) -> list[str]:
+        """Report missing asset paths without changing any user records."""
+        params = (project_id,) if project_id else ()
+        where_r = "WHERE r.project_id=?" if project_id else ""
+        where_v = "WHERE v.project_id=?" if project_id else ""
+        where_b = "WHERE b.project_id=?" if project_id else ""
+        issues: list[str] = []
+        for row in self.db.fetch_all(f"SELECT id,name,reference_wav,preview_mp3,prompt_path FROM voices v {where_v}", params):
+            for field in ("reference_wav", "preview_mp3", "prompt_path"):
+                if row[field] and not Path(row[field]).exists():
+                    issues.append(f"voice:{row['name']} {field} 不存在")
+        for row in self.db.fetch_all(f"SELECT c.id,c.wav_path,c.preview_path FROM candidates c JOIN voice_requests r ON r.id=c.request_id {where_r}", params):
+            for field in ("wav_path", "preview_path"):
+                if row[field] and not Path(row[field]).exists():
+                    issues.append(f"candidate:{row['id'][:8]} {field} 不存在")
+        for row in self.db.fetch_all(f"SELECT b.id,b.output_wav,b.output_mp3 FROM batch_items b {where_b}", params):
+            for field in ("output_wav", "output_mp3"):
+                if row[field] and not Path(row[field]).exists():
+                    issues.append(f"batch:{row['id'][:8]} {field} 不存在")
+        return issues
 
     def delete_project(self, project_id: str) -> str:
         """Permanently remove one project and every project-owned artifact."""
@@ -106,6 +139,9 @@ class StudioService:
         projects_root = PROJECT_DIR.resolve()
         if project_root.parent != projects_root:
             raise ValueError("项目目录校验失败，已停止删除")
+
+        # Snapshot all user data before destructive deletion; failure aborts.
+        self.db.backup_snapshot(f"pre-delete-project-{safe_filename(project['name'])}")
 
         voice_ids = [row["id"] for row in self.db.fetch_all(
             "SELECT id FROM voices WHERE project_id=?", (project_id,)
