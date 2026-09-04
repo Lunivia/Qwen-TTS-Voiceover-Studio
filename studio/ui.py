@@ -389,8 +389,7 @@ def switch_view(target: str):
     """Pure UI routing: show exactly one page container, without touching data."""
     if target not in VIEW_NAMES:
         target = "voice"
-    labels = {"voice": "声线", "dubbing": "配音", "results": "成品", "assets": "声线资产", "upload": "上传声线", "projects": "项目管理", "design": "VoiceDesign", "clone": "VoiceClone", "audio": "音频转换", "system": "系统状态"}
-    return [*[gr.update(visible=name == target) for name in VIEW_NAMES], f"当前页面：{labels[target]}"]
+    return [gr.update(visible=name == target) for name in VIEW_NAMES]
 
 
 REQUEST_STATUS = {
@@ -1833,7 +1832,7 @@ def build_app() -> gr.Blocks:
             inputs=[new_project],
             outputs=[project_select, library_project, upload_project, project_table, sidebar_project_summary, project_status],
         )
-        page_outputs = [voice_page, dubbing_page, results_page, assets_page, upload_page, projects_page, design_page, clone_page, audio_page, system_page, sidebar_view_status]
+        page_outputs = [voice_page, dubbing_page, results_page, assets_page, upload_page, projects_page, design_page, clone_page, audio_page, system_page]
         for nav_button, target in (
             (voice_nav, "voice"), (dubbing_nav, "dubbing"), (results_nav, "results"),
             (assets_nav, "assets"), (upload_nav, "upload"), (projects_nav, "projects"),
