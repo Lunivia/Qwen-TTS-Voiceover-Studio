@@ -29,6 +29,26 @@ STUDIO_THEME = gr.themes.Soft(
 )
 STUDIO_CSS = """
 .gradio-container {max-width: none !important;}
+.global-sidebar {
+    position: sticky;
+    top: 10px;
+    align-self: flex-start;
+    width: 250px;
+    min-width: 220px;
+    padding: 14px;
+    margin: 0 16px 16px 0;
+    border: 1px solid var(--border-color-primary);
+    border-radius: 12px;
+    background: var(--background-fill-secondary);
+}
+.global-sidebar .sidebar-title {font-weight: 700; font-size: 18px; margin-bottom: 8px;}
+.global-sidebar .sidebar-section {margin-top: 16px; font-size: 12px; font-weight: 700; color: var(--body-text-color-subdued); text-transform: uppercase; letter-spacing: .04em;}
+.global-sidebar .sidebar-nav a {display: block; padding: 6px 8px; border-radius: 7px; color: var(--body-text-color); text-decoration: none;}
+.global-sidebar .sidebar-nav a:hover {background: var(--background-fill-primary);}
+.sidebar-summary {line-height: 1.65; color: var(--body-text-color-subdued); font-size: 13px;}
+.main-workbench {flex: 1 1 auto; min-width: 0;}
+.main-workbench .tab-nav {display: none !important;}
+.workflow-map, .workflow-stage-nav {display: none !important;}
 .studio-hero {padding: 4px 2px 10px 2px;}
 .studio-muted {color: var(--body-text-color-subdued);}
 .studio-native-audio {width: 100%; min-height: 42px;}
@@ -286,6 +306,7 @@ def create_project(name: str):
             project_dropdown(project_id, "筛选/生成项目"),
             project_dropdown(project_id, "归属项目"),
             project_rows(project_id),
+            project_summary_text(project_id),
             f"项目“{name.strip()}”已就绪，声线和任务将独立保存。",
         )
     except Exception as exc:
@@ -294,6 +315,7 @@ def create_project(name: str):
             project_dropdown(label="筛选/生成项目"),
             project_dropdown(label="归属项目"),
             project_rows(),
+            project_summary_text(),
             f"{type(exc).__name__}: {exc}",
         )
 
@@ -371,21 +393,22 @@ def project_rows(current_project: str | None = None) -> list[list[Any]]:
         row["completed_count"],
         display_time(row["last_activity"]),
         row["id"][:8],
-        row["id"],
     ] for row in service.project_summaries()]
 
 
-def select_project_from_table(evt: gr.SelectData):
-    try:
-        row = getattr(evt, "row_value", None) or getattr(evt, "value", None)
-        # Column 8 is display-only short ID; column 9 is the authoritative UUID.
-        project_id = row[9] if isinstance(row, (tuple, list)) and len(row) > 9 else None
-        if not project_id:
-            raise ValueError("无法从项目表行解析项目 ID，请使用项目下拉框")
-        context = service.switch_project_context(str(project_id))
-        return project_dropdown(context.current_project_id, "当前项目"), f"已切换到项目「{context.name}」"
-    except Exception as exc:
-        return project_dropdown(label="当前项目"), f"{type(exc).__name__}: {exc}"
+def project_summary_text(project_id: str | None = None) -> str:
+    """Compact read-only project summary for the persistent sidebar."""
+    if not project_id:
+        return "暂无当前项目"
+    row = next((item for item in service.project_summaries() if item["id"] == project_id), None)
+    if not row:
+        return "项目不存在"
+    return (
+        f"{row['slot_count']} 个角色<br>"
+        f"{row['voice_count']} 个已固化<br>"
+        f"{row['task_count']} 条任务<br>"
+        f"{row['completed_count']} 条已完成"
+    )
 
 
 REQUEST_STATUS = {
@@ -1273,24 +1296,57 @@ def build_app() -> gr.Blocks:
             elem_classes=["studio-hero"],
         )
 
-        with gr.Tabs():
+        with gr.Column(elem_id="global-sidebar", elem_classes=["global-sidebar"]):
+            gr.Markdown("Qwen TTS Studio", elem_classes=["sidebar-title"])
+            project_select = gr.Dropdown(label="当前项目", choices=projects, value=default_project)
+            sidebar_project_summary = gr.HTML(project_summary_text(default_project), elem_classes=["sidebar-summary"])
+            sidebar_new_project = gr.Textbox(label="新建项目", placeholder="项目名称", show_label=False)
+            sidebar_create_project_btn = gr.Button("＋ 新建项目", variant="secondary")
+            gr.Markdown("工作台", elem_classes=["sidebar-section"])
+            gr.HTML(
+                """
+                <div class="sidebar-nav">
+                  <a href="#" onclick="return window.qwenSelectTab('项目工作流')">声线 / 配音 / 成品</a>
+                  <a href="#" onclick="return window.qwenSelectTab('声线资产库')">声线资产</a>
+                </div>
+                <div class="sidebar-section">工具</div>
+                <div class="sidebar-nav">
+                  <a href="#" onclick="return window.qwenSelectTab('独立 VoiceDesign')">VoiceDesign</a>
+                  <a href="#" onclick="return window.qwenSelectTab('独立 VoiceClone')">VoiceClone</a>
+                  <a href="#" onclick="return window.qwenSelectTab('音频转换')">音频转换</a>
+                </div>
+                <div class="sidebar-section">系统</div>
+                <div class="sidebar-nav">
+                  <a href="#" onclick="return window.qwenSelectTab('系统状态')">系统状态</a>
+                </div>
+                <script>
+                  window.qwenSelectTab = window.qwenSelectTab || function(label) {
+                    const tabs = Array.from(document.querySelectorAll('[role="tab"]'));
+                    const target = tabs.find(tab => (tab.textContent || '').trim() === label);
+                    if (target) target.click();
+                    return false;
+                  };
+                </script>
+                """
+            )
+
+        with gr.Tabs(elem_classes=["main-workbench"]):
             with gr.Tab("项目工作流"):
                 with gr.Row():
-                    project_select = gr.Dropdown(label="当前项目", choices=projects, value=default_project, scale=6)
-                    refresh_project_btn = gr.Button("刷新当前项目", scale=1)
+                    refresh_project_btn = gr.Button("刷新项目列表", scale=1)
                 project_status = gr.Markdown()
                 with gr.Accordion("📁 项目管理与项目列表", open=False):
                     with gr.Row():
                         new_project = gr.Textbox(label="新项目名称", placeholder="例如：有声书第一章", scale=5)
                         create_project_btn = gr.Button("新建项目", variant="secondary", scale=1)
                     gr.Markdown(
-                        "### 项目列表（点击任意一行快速切换）\n"
-                        "每个项目的声线资产、工作表、单句成品和批量任务彼此隔离。"
+                        "### 项目列表（仅查看与管理）\n"
+                        "项目切换请使用左侧‘当前项目’；每个项目的资产和任务彼此隔离。"
                     )
                     project_table = gr.Dataframe(
                         headers=[
                             "当前", "项目名称", "声线槽位", "可用固化声线", "单句成品",
-                            "批量任务", "已完成", "最近活动", "短 ID", "完整 project_id",
+                            "批量任务", "已完成", "最近活动", "短 ID",
                         ],
                         value=project_rows(default_project),
                         interactive=False,
@@ -1795,7 +1851,13 @@ def build_app() -> gr.Blocks:
         create_project_btn.click(
             create_project,
             inputs=[new_project],
-            outputs=[project_select, library_project, upload_project, project_table, project_status],
+            outputs=[project_select, library_project, upload_project, project_table, sidebar_project_summary, project_status],
+        )
+        sidebar_create_project_btn.click(
+            create_project,
+            inputs=[sidebar_new_project],
+            outputs=[project_select, library_project, upload_project, project_table, sidebar_project_summary, project_status],
+            queue=False,
         )
         delete_project_btn.click(
             delete_project_action,
@@ -1822,11 +1884,6 @@ def build_app() -> gr.Blocks:
             ],
             queue=False,
             show_progress="hidden",
-        )
-        project_table.select(
-            select_project_from_table,
-            outputs=[project_select, project_status],
-            queue=False,
         )
         create_slots_btn.click(
             bulk_create_requests,
@@ -1986,6 +2043,12 @@ def build_app() -> gr.Blocks:
             ],
             queue=False,
             show_progress="hidden",
+        )
+        project_select.change(
+            project_summary_text,
+            inputs=[project_select],
+            outputs=[sidebar_project_summary],
+            queue=False,
         )
         project_select.change(
             sync_project_contexts,
@@ -2196,6 +2259,13 @@ def build_app() -> gr.Blocks:
         app.load(
             refresh_projects_on_load,
             outputs=[project_select, library_project, upload_project, project_table],
+            queue=False,
+            show_progress="hidden",
+        )
+        app.load(
+            project_summary_text,
+            inputs=[project_select],
+            outputs=[sidebar_project_summary],
             queue=False,
             show_progress="hidden",
         )
