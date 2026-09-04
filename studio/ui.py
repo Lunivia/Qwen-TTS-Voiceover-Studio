@@ -1707,11 +1707,34 @@ def build_app() -> gr.Blocks:
                         batch_archive_file = gr.File(label="全部成品下载 ZIP", interactive=False)
 
             with gr.Column(visible=False, elem_id="page-dubbing") as dubbing_page:
-                gr.Markdown("## 配音\n批量配音控件与任务进度保留在“声线”工作流中。")
+                gr.Markdown("## 配音\n选择已固化声线，粘贴台词并生成批量任务。")
+                with gr.Row():
+                    with gr.Column(scale=2):
+                        dubbing_voice = gr.Dropdown(label="绑定声线", choices=service.voice_choices(default_project), value=(service.voice_choices(default_project)[0][1] if service.voice_choices(default_project) else None), filterable=True)
+                        dubbing_language = gr.Dropdown(label="语言", choices=LANGUAGES, value="Chinese")
+                        dubbing_text = gr.Textbox(label="台词文本", lines=12, placeholder="一行对应一个音频文件。\n空行会被忽略。")
+                        with gr.Row():
+                            dubbing_add_btn = gr.Button("加入任务", variant="secondary")
+                            dubbing_run_btn = gr.Button("开始/继续批量生成", variant="primary")
+                        dubbing_status = gr.Markdown()
+                    with gr.Column(scale=5):
+                        dubbing_table = gr.Dataframe(headers=["序号", "声线", "台词", "语言", "状态", "输出", "错误"], value=batch_rows(default_project), interactive=True, type="array", wrap=True, elem_id="dubbing-task-table")
             with gr.Column(visible=False, elem_id="page-results") as results_page:
-                gr.Markdown("## 成品\n试听、返修与导出功能保留在“声线”工作流中。")
+                gr.Markdown("## 成品\n查看当前项目已完成的批量结果，并进入原有试听、返修与导出工作流。")
+                results_refresh_btn = gr.Button("加载/刷新全部结果", variant="primary")
+                results_count = gr.Markdown(f"当前项目已有 **{len(initial_batch_results)}** 条结果。")
+                results_table = gr.Dataframe(headers=["序号", "声线", "台词", "语言", "状态", "输出", "错误"], value=batch_rows(default_project), interactive=False, wrap=True, elem_id="results-task-table")
+                gr.Markdown("详细音频试听、单句返修及导出设置可在“声线”工作流对应区继续使用。")
             with gr.Column(visible=False, elem_id="page-projects") as projects_page:
-                gr.Markdown("## 项目管理\n项目切换请使用左侧“当前项目”；项目列表与删除入口位于声线工作流的项目管理区。")
+                gr.Markdown("## 项目管理\n创建、刷新和删除项目；切换项目请使用左侧“当前项目”。")
+                with gr.Row():
+                    projects_name = gr.Textbox(label="新项目名称", placeholder="例如：有声书第一章", scale=4)
+                    projects_create_btn = gr.Button("新建项目", variant="primary")
+                    projects_refresh_btn = gr.Button("刷新项目列表")
+                projects_status = gr.Markdown()
+                projects_table = gr.Dataframe(headers=["当前", "项目名称", "声线槽位", "可用固化声线", "单句成品", "批量任务", "已完成", "最近活动", "短 ID"], value=project_rows(default_project), interactive=False, wrap=True, elem_id="projects-table")
+                projects_confirm = gr.Textbox(label="输入当前项目名称以确认删除")
+                projects_delete_btn = gr.Button("永久删除当前项目", variant="stop")
             with gr.Column(visible=False, elem_id="page-assets") as assets_page:
                 with gr.Row():
                     library_refresh = gr.Button("刷新声线库")
@@ -1818,6 +1841,12 @@ def build_app() -> gr.Blocks:
             (system_nav, "system"),
         ):
             nav_button.click(lambda target=target: switch_view(target), outputs=page_outputs, queue=False)
+        dubbing_add_btn.click(add_batch, inputs=[project_select, dubbing_voice, dubbing_language, dubbing_text], outputs=[dubbing_table, dubbing_status, dubbing_text])
+        dubbing_run_btn.click(run_batch, inputs=[project_select], outputs=[dubbing_table, dubbing_status, batch_results_project, batch_results_revision, batch_result_count])
+        results_refresh_btn.click(refresh_batch_results, inputs=[project_select], outputs=[batch_results_project, batch_results_revision, results_count, batch_result_limit, batch_load_timer], queue=False)
+        projects_create_btn.click(create_project, inputs=[projects_name], outputs=[project_select, library_project, upload_project, projects_table, sidebar_project_summary, projects_status], queue=False)
+        projects_refresh_btn.click(refresh_projects, inputs=[project_select], outputs=[project_select, library_project, upload_project, projects_table], queue=False)
+        projects_delete_btn.click(delete_project_action, inputs=[project_select, projects_confirm], outputs=[project_select, projects_table, projects_status, projects_confirm], queue=False, show_progress="hidden")
         delete_project_btn.click(
             delete_project_action,
             inputs=[project_select, delete_project_confirmation],
