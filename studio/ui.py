@@ -29,12 +29,19 @@ STUDIO_THEME = gr.themes.Soft(
 )
 STUDIO_CSS = """
 .gradio-container {max-width: none !important;}
+.workbench-shell {
+    align-items: flex-start !important;
+    flex-wrap: nowrap !important;
+    gap: 16px !important;
+}
 .global-sidebar {
     position: sticky;
-    top: 10px;
+    top: 12px;
     align-self: flex-start;
     width: 250px;
-    min-width: 220px;
+    min-width: 240px;
+    max-width: 270px;
+    flex: 0 0 250px !important;
     padding: 14px;
     margin: 0 16px 16px 0;
     border: 1px solid var(--border-color-primary);
@@ -43,11 +50,11 @@ STUDIO_CSS = """
 }
 .global-sidebar .sidebar-title {font-weight: 700; font-size: 18px; margin-bottom: 8px;}
 .global-sidebar .sidebar-section {margin-top: 16px; font-size: 12px; font-weight: 700; color: var(--body-text-color-subdued); text-transform: uppercase; letter-spacing: .04em;}
-.global-sidebar .sidebar-nav a {display: block; padding: 6px 8px; border-radius: 7px; color: var(--body-text-color); text-decoration: none;}
-.global-sidebar .sidebar-nav a:hover {background: var(--background-fill-primary);}
+.global-sidebar .sidebar-nav a {display: block; padding: 7px 9px; border-radius: 7px; color: var(--body-text-color); text-decoration: none; border-left: 3px solid transparent; cursor: pointer;}
+.global-sidebar .sidebar-nav a:hover, .global-sidebar .sidebar-nav a.active {background: var(--background-fill-primary); border-left-color: var(--primary-500);}
 .sidebar-summary {line-height: 1.65; color: var(--body-text-color-subdued); font-size: 13px;}
-.main-workbench {flex: 1 1 auto; min-width: 0;}
-.main-workbench .tab-nav {display: none !important;}
+.main-workbench {flex: 1 1 auto !important; min-width: 0 !important;}
+.main-workbench .tab-wrapper > .tab-container[role="tablist"] {display: none !important;}
 .workflow-map, .workflow-stage-nav {display: none !important;}
 .studio-hero {padding: 4px 2px 10px 2px;}
 .studio-muted {color: var(--body-text-color-subdued);}
@@ -1288,15 +1295,14 @@ def build_app() -> gr.Blocks:
     initial_excerpt_length = default_batch_excerpt_length(default_project)
 
     with gr.Blocks(title="Qwen3 TTS 声线工作台") as app:
-        gr.Markdown(
-            """
-# Qwen3 TTS 声线工作台
-创建候选声线、集中固化、归档复用，并按声线批量生成 128kbps MP3。
-            """,
-            elem_classes=["studio-hero"],
-        )
-
-        with gr.Column(elem_id="global-sidebar", elem_classes=["global-sidebar"]):
+        workbench_shell = gr.Row(elem_classes=["workbench-shell"])
+        workbench_shell.__enter__()
+        with gr.Column(
+            scale=0,
+            min_width=240,
+            elem_id="global-sidebar",
+            elem_classes=["global-sidebar"],
+        ):
             gr.Markdown("Qwen TTS Studio", elem_classes=["sidebar-title"])
             project_select = gr.Dropdown(label="当前项目", choices=projects, value=default_project)
             sidebar_project_summary = gr.HTML(project_summary_text(default_project), elem_classes=["sidebar-summary"])
@@ -1330,7 +1336,9 @@ def build_app() -> gr.Blocks:
                 """
             )
 
-        with gr.Tabs(elem_classes=["main-workbench"]):
+        main_workbench = gr.Column(scale=1, min_width=0, elem_classes=["main-workbench"])
+        main_workbench.__enter__()
+        with gr.Tabs():
             with gr.Tab("项目工作流"):
                 with gr.Row():
                     refresh_project_btn = gr.Button("刷新项目列表", scale=1)
@@ -2296,5 +2304,8 @@ def build_app() -> gr.Blocks:
             queue=False,
             show_progress="hidden",
         )
+
+        main_workbench.__exit__(None, None, None)
+        workbench_shell.__exit__(None, None, None)
 
     return app
