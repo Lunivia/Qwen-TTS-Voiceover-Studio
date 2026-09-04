@@ -100,12 +100,12 @@ class StudioService:
     def switch_project_context(self, project_id: str | None) -> ProjectContext:
         """Validate and persist the sole project context used by the UI."""
         if not project_id:
-            raise ValueError("璇峰厛閫夋嫨椤圭洰")
+            raise ValueError("请先选择项目")
         project = self.db.fetch_one(
             "SELECT id,name,status FROM projects WHERE id=?", (project_id,)
         )
         if not project:
-            raise ValueError("椤圭洰涓嶅瓨鍦ㄦ垨宸茶鍒犻櫎")
+            raise ValueError("项目不存在或已被删除")
         self.db.set_setting("last_project_id", project["id"])
         return ProjectContext(project["id"], project["name"], project["status"])
 

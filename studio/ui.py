@@ -371,13 +371,15 @@ def project_rows(current_project: str | None = None) -> list[list[Any]]:
         row["completed_count"],
         display_time(row["last_activity"]),
         row["id"][:8],
+        row["id"],
     ] for row in service.project_summaries()]
 
 
 def select_project_from_table(evt: gr.SelectData):
     try:
         row = getattr(evt, "row_value", None) or getattr(evt, "value", None)
-        project_id = row[8] if isinstance(row, (tuple, list)) and len(row) > 8 else None
+        # Column 8 is display-only short ID; column 9 is the authoritative UUID.
+        project_id = row[9] if isinstance(row, (tuple, list)) and len(row) > 9 else None
         if not project_id:
             raise ValueError("无法从项目表行解析项目 ID，请使用项目下拉框")
         context = service.switch_project_context(str(project_id))
@@ -1288,7 +1290,7 @@ def build_app() -> gr.Blocks:
                     project_table = gr.Dataframe(
                         headers=[
                             "当前", "项目名称", "声线槽位", "可用固化声线", "单句成品",
-                            "批量任务", "已完成", "最近活动", "ID",
+                            "批量任务", "已完成", "最近活动", "短 ID", "完整 project_id",
                         ],
                         value=project_rows(default_project),
                         interactive=False,
